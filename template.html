@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu&display=swap" rel="stylesheet">
+
+    <style>
+        @page {
+            size: letter;
+            margin: 0.25in 1in;
+        }
+
+        @media screen {
+            body {
+                margin: auto;
+                max-width: 800px;
+            }
+
+            .recipe {
+                margin-bottom: 70px;
+            }
+        }
+
+        @media print {
+            .search {
+                display: none;
+            }
+        }
+
+        body {
+            font-family: 'Ubuntu', sans-serif;
+            font-size: 12pt;
+        }
+
+        .recipe {
+            display: none;
+            page-break-after: always;
+            text-align: justify;
+        }
+
+        .recipe.selected {
+            display: block;
+        }
+
+        .recipe h1 {
+            text-align: center;
+        }
+        
+        h1, h2, h3 {
+            margin-bottom: 3px;
+        }
+        
+        .recipe ol, .recipe ul {
+            margin-top: 0;
+            margin-bottom: 0;
+            text-align: left;
+        }
+        
+        .recipe ul {
+            column-count: 2;
+        }
+        
+        p {
+            margin-top: 8px;
+            margin-bottom: 16px;
+        }
+
+        table {
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 10px;
+            border-collapse: collapse;
+            font-size: 10pt;
+        }
+
+        td {
+            padding: 2px;
+        }
+
+        tr:first-child td:nth-child(3) {
+            border-top: 0;
+            border-right: 0;
+        }
+
+        td:nth-child(4) {
+            width: 40px;
+            border: 0;
+        }
+
+        td:nth-child(1), td:nth-child(5) {
+            text-align: right;
+        }
+
+        td:nth-child(2), td:last-child, td:nth-child(3) {
+            font-family: monospace;
+        }
+
+        span.deemph {
+            font-size: 10pt;
+            font-style: italic;
+            color: gray;
+        }
+
+        .search {
+            position: absolute;
+            width: 400px;
+            height: calc(100% - 50px);
+            left: 15px;
+            top: 15px;
+            border: 2px solid black;
+            padding: 10px;
+        }
+
+        .search ul {
+            margin-block-start: 0;
+        }
+
+        .search input {
+            margin: 10px;
+            width: calc(100% - 30px);
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.js"></script>
+    <script>
+
+        function addEntry(m, path, entry) {
+            if (path.length == 1) {
+                m.set(path[0], entry);
+            } else if (path.length > 1) {
+                let s = m.get(path[0]);
+                if (!s) {
+                    s = new Map();
+                    m.set(path[0], s);
+                }
+
+                addEntry(s, path.slice(1), entry)
+            }
+        }
+
+        function navigateTo(filepath) {
+            curSelected = document.querySelectorAll(".recipe.selected")
+            newSelected = document.querySelector(`.recipe[data-filepath="${filepath}"]`)
+
+            for (let recipe of curSelected) {
+                if (recipe != newSelected) {
+                    recipe.classList.remove("selected")
+                }
+            }
+
+            newSelected.classList.add("selected")
+        }
+
+        let entryList = []
+
+        window.addEventListener("load", () => {
+            let recipes = document.querySelectorAll(".recipe");
+            let recipeNames = new Map()
+            for (let r of recipes) {
+                let path = r.dataset.filepath.split("/");
+
+                let entry = {
+                    title: r.querySelector("h1").textContent,
+                    filepath: r.dataset.filepath
+                }
+
+                addEntry(recipeNames, path, entry);
+                entryList.push(entry);
+            }
+
+            function populateTree(root, data) {
+                for (let [key, value] of data) {
+                    let li = document.createElement("li");
+
+                    if (value instanceof Map) {
+                        li.innerText = key;
+                        let ul = document.createElement("ul");
+                        populateTree(ul, value);
+                        li.appendChild(ul);
+                    } else {
+                        li.innerHTML = `
+                        <a href="#"
+                            onclick="navigateTo('${value.filepath}');"
+                            data-filepath="${value.filepath}">
+                            ${value.title}
+                        </a>`;
+                    }
+
+                    root.appendChild(li);
+                }
+            }
+
+            let frag = document.createDocumentFragment();
+            populateTree(frag, recipeNames)
+
+            document.querySelector(".tree").appendChild(frag);
+
+            let f = new Fuse(entryList, {
+                includeScore: true,
+                keys: ["title"],
+                threshold: 0.5,
+                distance: 1000,
+            })
+            
+            window.addEventListener("keydown", e => {
+                if (e.code == "Slash") {
+                    sb = document.querySelector("input#searchbar")
+                    if (document.activeElement != sb) {
+                        sb.focus();
+                    }
+                }
+            }, true);
+
+            document.querySelector("input#searchbar").addEventListener("beforeinput", e => {
+                if (e.inputType == "insertText" && e.data == "/") {
+                    e.preventDefault();
+                    return;
+                }
+            })
+
+            document.querySelector("input#searchbar").addEventListener("input", e => {
+                let active;
+                let query = e.target.value;
+                if (query == "") {
+                    active = { has: _ => true};
+                } else {
+                    if (query.includes("/")) {
+                        let [titleQuery, ingrQuery] = query.split("/");
+                    }
+                    let results = f.search(e.target.value)
+                    active = new Set()
+                    for (let res of results) {
+                        active.add(res.item.filepath)
+                    }
+                }
+
+                let links = document.querySelectorAll(`.search a`);
+                for (let link of links) {
+                    if (active.has(link.dataset.filepath)) {
+                        link.parentNode.hidden = false;
+                    } else {
+                        link.parentNode.hidden = true;
+                    }
+                }
+            })
+        });
+
+    </script>
+</head>
+<body>
+    <div class="search">
+        <input id="searchbar" />
+        <div class="tree">
+            <!-- populated by JS -->
+        </div>
+    </div>
+
+    {{#each recipes}}
+    <div class="recipe" data-filepath="{{this.filePath}}">
+        {{{this.instructions}}}
+        <h2>Nutrition</h2>
+        <table>
+            <tr>
+                <td>Calories:</td>
+                <td>{{this.nutrition.Calories}}</td>
+                <td></td>
+                <td></td>
+                <td>Sugar:</td>
+                <td>{{this.nutrition.Sugars}}g</td>
+            </tr>
+            <tr>
+                <td>Fat:</td>
+                <td>{{this.nutrition.TotalFat}}g</td>
+                <td>({{this.FatPercent}}%)</td>
+                <td></td>
+                <td>Saturated Fat:</td>
+                <td>{{this.nutrition.SaturatedFat}}g</td>
+            </tr>
+            <tr>
+                <td>Protein:</td>
+                <td>{{this.nutrition.Protein}}g</td>
+                <td>({{this.ProteinPercent}}%)</td>
+                <td></td>
+                <td>Cholesterol:</td>
+                <td>{{this.nutrition.Cholesterol}}mg</td>
+            </tr>
+            <tr>
+                <td>Carbs:</td>
+                <td>{{this.nutrition.TotalCarbs}}g</td>
+                <td>({{this.CarbsPercent}}%)</td>
+                <td></td>
+                <td>Fiber:</td>
+                <td>{{this.nutrition.DietaryFiber}}g</td>
+            </tr>
+        </table>
+    </div>
+    {{/each}}
+</body>
+</html>
