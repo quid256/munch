@@ -112,9 +112,10 @@ func createMaterialsHelper(filePath string) func(options *raymond.Options) raymo
 		hash := base64.StdEncoding.EncodeToString(sum[:])
 
 		// recompute the nutrition information, if necessary
-		cached, ok := nutritionCache[filePath]
+		fileName := filepath.Base(filePath)
+		cached, ok := nutritionCache[fileName]
 		if !ok || cached.Hash != hash {
-			log.Printf("Pulling Nutritionix data for %s\n", filepath.Base(filePath))
+			log.Printf("Pulling Nutritionix data for %s\n", fileName)
 
 			curNutrition = getNutritionInformation(nutritionixQuery{
 				Query:         ingr,
@@ -122,7 +123,7 @@ func createMaterialsHelper(filePath string) func(options *raymond.Options) raymo
 				LineDelimited: true,
 			})
 
-			nutritionCache[filePath] = nutritionCacheEntry{
+			nutritionCache[fileName] = nutritionCacheEntry{
 				Hash:             hash,
 				NutritionSummary: curNutrition,
 			}

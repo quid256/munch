@@ -64,7 +64,7 @@ func readRecipeDir(recipeFolder string) ([]recipe, error) {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
+		if info.IsDir() || filepath.Ext(path) != ".md" {
 			return nil
 		}
 
@@ -192,9 +192,11 @@ func main() {
 							debounced(renderBook)
 
 						case ei := <-recipeEvents:
-							log.Println("Recipe change event:", ei)
-
 							p := ei.Path()
+							rel, err := filepath.Rel(recipeFolder, p)
+							check(err)
+
+							log.Printf("Ev %v: %s", ei.Event(), rel)
 
 							switch ei.Event() {
 							case notify.Write:
@@ -202,9 +204,6 @@ func main() {
 								if err != nil {
 									return err
 								}
-
-								rel, err := filepath.Rel(recipeFolder, p)
-								check(err)
 
 								for i, r := range recipes {
 									if r.FilePath == rel {
@@ -222,9 +221,6 @@ func main() {
 
 								debounced(renderBook)
 							case notify.Remove, notify.Rename:
-								rel, err := filepath.Rel(recipeFolder, p)
-								check(err)
-
 								for i, r := range recipes {
 									if r.FilePath == rel {
 										recipes = append(recipes[:i], recipes[i+1:]...)
