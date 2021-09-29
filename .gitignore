@@ -3,5 +3,9 @@ todo.md
 credentials.json
 .vscode/
 bin/
-recipes/
 .cache.json
+
+recipes/
+!recipes/breakfast/breakfast_smoothie.md
+!recipes/lunch/sweet_potato_hash.md
+!recipes/misc/tortillas.md

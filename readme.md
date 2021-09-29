@@ -5,9 +5,10 @@ An app to generate recipe books. Some features:
 - Recipes are written in templated markdown
 - Nutrition information is pulled automatically from Nutritionix
 - Recipes are rendered to a "cookbook" (which is a static html file
-  `render.html`) that
+  `render.html` by default) that
   - Has an index and is searchable
   - Is easily printable
+  - Is mobile-friendly (WIP)
 
 
 ## Setup
@@ -39,3 +40,7 @@ In order to run munch, you'll need to do the following things:
    This will tell munch to watch the recipes folder and create/update
    `render.html` whenever a recipe is changed.
 1. Open `render.html` in a web browser and cook!
+
+Take a look at the example recipes in the `recipes/` folder to see how to format
+your own recipe files. They're pretty simple to make and render into
+nice-ish HTML with nutrition information!
