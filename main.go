@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/aymerick/raymond"
@@ -14,129 +15,155 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-const (
-	templateFileName = "template.html"
-	outputFileName   = "render.html"
-)
-
-var recipeBookTemplate *raymond.Template
-
-func init() {
-	var err error
-
-	recipeBookTemplate, err = raymond.ParseFile(templateFileName)
-	check(err)
-}
-
 func check(err error) {
 	if err != nil {
 		panic(err)
 	}
 }
 
-func renderRecipes(recipes []recipe) error {
-	// Substitute the HTML into the template HTML file
-	htmlRes := recipeBookTemplate.MustExec(map[string]interface{}{
+// renderRecipes takes a list of recipe objects, renders them into the HTML
+// template file, and writes the result to the appropriate output file name.
+func renderRecipes(recipes []recipe, template *raymond.Template, outputFile string) error {
+	// Substitute the recipe data into the HTML template file
+	htmlRes := template.MustExec(map[string]interface{}{
 		"recipes": recipes,
 	})
 
-	f, err := os.Create(outputFileName)
+	// Create / open the output file for writing
+	f, err := os.Create(outputFile)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	f.Write([]byte(htmlRes))
+	if _, err := f.Write([]byte(htmlRes)); err != nil {
+		return err
+	}
 
 	return nil
 }
 
+func readRecipeFile(fp string, recipeFolder string) (recipe, error) {
+	recipeText, err := os.ReadFile(fp)
+	if err != nil {
+		return recipe{}, err
+	}
+
+	shortpath, err := filepath.Rel(recipeFolder, fp)
+	if err != nil {
+		return recipe{}, err
+	}
+
+	return processRecipeText(recipeText, fp, shortpath), nil
+}
+
+func readRecipeDir(recipeFolder string) ([]recipe, error) {
+	var recipes []recipe
+
+	err := filepath.Walk(recipeFolder, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		recipe, err := readRecipeFile(path, recipeFolder)
+		check(err)
+
+		recipes = append(recipes, recipe)
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(recipes, func(i, j int) bool {
+		return recipes[i].FilePath < recipes[j].FilePath
+	})
+
+	return recipes, nil
+}
+
 func main() {
 	app := &cli.App{
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "output",
+				Aliases: []string{"o"},
+				Usage:   "Render recipe book to the specified file",
+				Value:   "render.html",
+			},
+			&cli.StringFlag{
+				Name:    "template",
+				Aliases: []string{"t"},
+				Usage:   "File to use for recipe book template",
+				Value:   "template.html",
+			},
+		},
 		Commands: []*cli.Command{
 			{
 				Name:    "render",
 				Aliases: []string{"r"},
-				Usage:   "render specified files",
+				Usage:   "Render the specified directory into a dynamic cookbook HTML",
 				Action: func(c *cli.Context) error {
-					var recipes []recipe
-
-					for i := 0; i < c.Args().Len(); i++ {
-						f := c.Args().Get(i)
-
-						recipeText, err := os.ReadFile(f)
-						if err != nil {
-							return err
-						}
-
-						fp, err := filepath.Abs(f)
-						if err != nil {
-							return err
-						}
-
-						recipes = append(recipes, processRecipeText(recipeText, fp, f))
+					if c.Args().Len() != 1 {
+						panic("Only 1 argument allowed")
 					}
 
-					check(renderRecipes(recipes))
+					fp := c.Args().Get(0)
+					fileInfo, err := os.Stat(fp)
+					check(err)
+					if !fileInfo.IsDir() {
+						panic("Specified arg must be a dir")
+					}
 
-					flushNutritionCache()
+					template, err := raymond.ParseFile(c.String("template"))
+					check(err)
+
+					recipes, err := readRecipeDir(fp)
+					check(err)
+
+					check(renderRecipes(recipes, template, c.String("output")))
+					writeNutritionCache()
 
 					return nil
 				},
 			},
 			{
-				Name: "watch",
+				Name:    "watch",
+				Aliases: []string{"w"},
+				Usage:   "Watch the specified directory for recipe changes and update the cookbook HTML",
 				Action: func(c *cli.Context) error {
-
-					recipeFolder := c.Args().First()
-					if recipeFolder == "" {
-						recipeFolder = "recipes"
+					if c.Args().Len() != 1 {
+						panic("Only 1 argument allowed")
 					}
 
-					recipeFolder, err := filepath.Abs(recipeFolder)
+					recipeFolder := c.Args().Get(0)
+					fileInfo, err := os.Stat(recipeFolder)
+					check(err)
+					if !fileInfo.IsDir() {
+						panic("Specified arg must be a dir")
+					}
+
+					recipeFolder, err = filepath.Abs(recipeFolder)
 					check(err)
 
-					var recipes map[string]recipe //:= make(map[string]recipe)
-					var recipeOrder []string
+					recipes, err := readRecipeDir(recipeFolder)
+					check(err)
 
-					walkRecipeFolder := func() error {
-						recipes = make(map[string]recipe)
-						recipeOrder = nil
-
-						return filepath.Walk(recipeFolder, func(path string, info os.FileInfo, err error) error {
-							if err != nil {
-								return err
-							}
-							if info.IsDir() {
-								return nil
-							}
-
-							fp, err := filepath.Abs(path)
-							recipeText, err := os.ReadFile(fp)
-							if err != nil {
-								return err
-							}
-
-							shortpath, err := filepath.Rel(recipeFolder, fp)
-							check(err)
-
-							recipes[fp] = processRecipeText(recipeText, fp, shortpath)
-							recipeOrder = append(recipeOrder, fp)
-
-							return nil
-						})
-					}
-					check(walkRecipeFolder())
+					templateFileName := c.String("template")
+					template, err := raymond.ParseFile(templateFileName)
+					check(err)
 
 					renderBook := func() {
 						log.Println("Rendering book...")
-						var recipeList []recipe
-						for _, r := range recipeOrder {
-							recipeList = append(recipeList, recipes[r])
-						}
-						check(renderRecipes(recipeList))
-						flushNutritionCache()
+						check(renderRecipes(recipes, template, c.String("output")))
+						writeNutritionCache()
 					}
+
 					renderBook()
 
 					debounced := debounce.New(100 * time.Millisecond)
@@ -159,8 +186,7 @@ func main() {
 						select {
 						case ti := <-templateEvents:
 							log.Println("Template change event:", ti)
-							var err error
-							recipeBookTemplate, err = raymond.ParseFile(templateFileName)
+							template, err = raymond.ParseFile(templateFileName)
 							check(err)
 
 							debounced(renderBook)
@@ -168,9 +194,10 @@ func main() {
 						case ei := <-recipeEvents:
 							log.Println("Recipe change event:", ei)
 
+							p := ei.Path()
+
 							switch ei.Event() {
 							case notify.Write:
-								p := ei.Path()
 								recipeText, err := os.ReadFile(p)
 								if err != nil {
 									return err
@@ -179,11 +206,31 @@ func main() {
 								rel, err := filepath.Rel(recipeFolder, p)
 								check(err)
 
-								recipes[p] = processRecipeText(recipeText, p, rel)
+								for i, r := range recipes {
+									if r.FilePath == rel {
+										recipes[i] = processRecipeText(recipeText, p, rel)
+										break
+									}
+								}
 
 								debounced(renderBook)
 							case notify.Create:
-								check(walkRecipeFolder())
+								r, err := readRecipeFile(p, recipeFolder)
+								check(err)
+
+								recipes = append(recipes, r)
+
+								debounced(renderBook)
+							case notify.Remove, notify.Rename:
+								rel, err := filepath.Rel(recipeFolder, p)
+								check(err)
+
+								for i, r := range recipes {
+									if r.FilePath == rel {
+										recipes = append(recipes[:i], recipes[i+1:]...)
+										break
+									}
+								}
 
 								debounced(renderBook)
 							}

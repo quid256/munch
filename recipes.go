@@ -173,7 +173,7 @@ func processRecipeText(recipeText []byte, fp string, shortpath string) recipe {
 	}
 }
 
-func flushNutritionCache() {
+func writeNutritionCache() {
 	b, err := json.Marshal(nutritionCache)
 	check(err)
 
