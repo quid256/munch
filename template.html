@@ -142,7 +142,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="https://unpkg.com/pako@1.0.11/dist/pako_inflate.min.js"></script>
     <script>
-
         function addEntry(m, path, entry) {
             if (path.length == 1) {
                 m.set(path[0], entry);
@@ -158,14 +157,27 @@
         }
 
         function navigateTo(filepath) {
+            if (filepath == "") {
+                for (let recipe of curSelected) {
+                    recipe.classList.remove("selected")
+                }
+                return
+            }
+
             curSelected = document.querySelectorAll("recipe-instructions.selected")
             newSelected = document.querySelector(`recipe-instructions[data-filepath="${filepath}"]`)
+            
+            if (newSelected === null) {
+                alert("Unknown filepath: " + filepath)
+                return
+            }
 
             for (let recipe of curSelected) {
                 if (recipe != newSelected) {
                     recipe.classList.remove("selected")
                 }
             }
+
 
             newSelected.classList.add("selected")
         }
@@ -248,7 +260,7 @@
                 }
             }
             if (Object.keys(data).length === 0) {
-                let pw = prompt("Passphrase", "Munch");
+                let pw = prompt("Passphrase?", "");
                 try {
                     data = decryptData(encData, pw);
                     sessionStorage.setItem("passphrase", pw);
@@ -305,10 +317,9 @@
                         li.appendChild(ul);
                     } else {
                         li.innerHTML = `
-                        <a href="#"
+                        <a href="#${value.filepath}"
                             target="_self"
-                            onclick="navigateTo('${value.filepath}');"
-                            data-filepath="${value.filepath}">
+                            >
                             ${value.title}
                         </a>`;
                     }
@@ -375,6 +386,12 @@
             document.querySelector(".show-search-btn").addEventListener('click', () => {
                 document.querySelector(".search").classList.toggle("visible")
             });
+
+            window.addEventListener("hashchange", (ev) => {
+                navigateTo(location.hash.substr(1));
+            })
+
+            navigateTo(location.hash.substr(1));
         });
     </script>
 </head>
