@@ -8,23 +8,13 @@
     <title>Document</title>
     <link rel="preconnect" href="https://fonts.gstatic.com">
     <link href="https://fonts.googleapis.com/css2?family=Ubuntu&display=swap" rel="stylesheet">
-
+    <base target="_blank">
     <style>
         @page {
             size: letter;
             margin: 0.25in 1in;
         }
 
-        @media screen {
-            body {
-                margin: auto;
-                max-width: 800px;
-            }
-
-            .recipe {
-                margin-bottom: 70px;
-            }
-        }
 
         .show-search-btn {
             visibility: hidden;
@@ -43,20 +33,21 @@
         body {
             font-family: 'Ubuntu', sans-serif;
             font-size: 12pt;
-            padding: 10px
+            padding: 10px;
+            overflow-x: hidden;
         }
 
-        .recipe {
+        recipe-instructions {
             display: none;
             page-break-after: always;
-            text-align: justify;
+            text-align: left;
         }
 
-        .recipe.selected {
+        recipe-instructions.selected {
             display: block;
         }
 
-        .recipe h1 {
+        h1 {
             text-align: center;
         }
 
@@ -66,59 +57,26 @@
             margin-bottom: 3px;
         }
 
-        .recipe ol,
-        .recipe ul {
+        recipe-instructions ol,
+        recipe-instructions ul {
             margin-top: 0;
             margin-bottom: 0;
             text-align: left;
         }
 
-        .recipe ul {
+        recipe-instructions ul {
             column-count: 2;
         }
 
-        p {
-            margin-top: 8px;
-            margin-bottom: 16px;
-        }
-
-        table {
-            margin-left: auto;
-            margin-right: auto;
-            margin-top: 10px;
-            border-collapse: collapse;
-            font-size: 10pt;
-        }
-
-        td {
-            padding: 2px;
-        }
-
-        tr:first-child td:nth-child(3) {
-            border-top: 0;
-            border-right: 0;
-        }
-
-        td:nth-child(4) {
-            width: 40px;
-            border: 0;
-        }
-
-        td:nth-child(1),
-        td:nth-child(5) {
-            text-align: right;
-        }
-
-        td:nth-child(2),
-        td:last-child,
-        td:nth-child(3) {
-            font-family: monospace;
-        }
-
-        span.deemph {
+        recipe-instructions span.deemph {
             font-size: 10pt;
             font-style: italic;
             color: gray;
+        }
+
+        recipe-instructions p {
+            margin-top: 8px;
+            margin-bottom: 16px;
         }
 
         .search {
@@ -143,14 +101,21 @@
             width: calc(100% - 30px);
         }
 
+        .search a {
+            color: darkblue;
+        }
+
+        .search a:hover {
+            color: blue;
+        }
+
         @media only screen and (max-width: 1500px) {
             .search {
                 display: none;
                 position: absolute;
-                width: 100%;
-                height: 100%;
-                left: 0;
-                top: 0;
+                width: calc(100% - 50px);
+                left: 10px;
+                top: 10px;
             }
 
             .search.visible {
@@ -161,8 +126,21 @@
                 visibility: visible;
             }
         }
+
+        @media screen {
+            body {
+                margin: auto;
+                max-width: 800px;
+            }
+
+            recipe-instructions {
+                margin-bottom: 70px;
+            }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://unpkg.com/pako@1.0.11/dist/pako_inflate.min.js"></script>
     <script>
 
         function addEntry(m, path, entry) {
@@ -180,8 +158,8 @@
         }
 
         function navigateTo(filepath) {
-            curSelected = document.querySelectorAll(".recipe.selected")
-            newSelected = document.querySelector(`.recipe[data-filepath="${filepath}"]`)
+            curSelected = document.querySelectorAll("recipe-instructions.selected")
+            newSelected = document.querySelector(`recipe-instructions[data-filepath="${filepath}"]`)
 
             for (let recipe of curSelected) {
                 if (recipe != newSelected) {
@@ -194,8 +172,115 @@
 
         let entryList = []
 
+        function flatten(origObj, newObj, prefix = "") {
+            for (let key in origObj) {
+                if (
+                    typeof origObj[key] === 'object' &&
+                    !Array.isArray(origObj[key]) &&
+                    origObj[key] !== null
+                ) {
+                    flatten(origObj[key], newObj, prefix = key.toString() + ".")
+                } else {
+                    newObj[prefix + key.toString()] = origObj[key]
+                }
+
+            }
+        }
+
+        function convertWordArrayToUint8Array(wordArray) {
+            var len = wordArray.words.length,
+                u8_array = new Uint8Array(len << 2),
+                offset = 0, word, i;
+
+            for (i = 0; i < len; i++) {
+                word = wordArray.words[i];
+                u8_array[offset++] = word >> 24;
+                u8_array[offset++] = (word >> 16) & 0xff;
+                u8_array[offset++] = (word >> 8) & 0xff;
+                u8_array[offset++] = word & 0xff;
+            }
+            return u8_array;
+        }
+
         window.addEventListener("load", () => {
-            let recipes = document.querySelectorAll(".recipe");
+            customElements.define('recipe-instructions',
+                class extends HTMLElement {
+                    constructor() {
+                        super();
+                        const template = document.getElementById('recipe-template').content;
+                        const shadowRoot = this.attachShadow({ mode: 'open' })
+                            .appendChild(template.cloneNode(true));
+                    }
+                }
+            );
+
+            function decryptData(encrypted, pass) {
+                let pw_hash = CryptoJS.SHA256(pass)
+
+                let cipherParams = CryptoJS.lib.CipherParams.create({
+                    ciphertext: CryptoJS.enc.Base64.parse(encrypted)
+                });
+
+                let options = {
+                    mode: CryptoJS.mode.CBC,
+                    iv: CryptoJS.enc.Base64.parse("AAAAAAAAAAAAAAAAAAAAAA==")
+                };
+
+                de = CryptoJS.AES.decrypt(cipherParams, pw_hash, options);
+
+                let data = {}
+                console.log(de)
+
+                let zippedArray = convertWordArrayToUint8Array(de);
+                let unzippedJSON = pako.inflate(zippedArray, {to: 'string'});
+
+                return JSON.parse(unzippedJSON);
+            }
+
+            let encData = "{{recipeData}}";
+
+            let data = {};
+            if (sessionStorage.getItem("passphrase")) {
+                try {
+                    data = decryptData(encData, sessionStorage.getItem("passphrase"));
+                } catch {
+                    sessionStorage.removeItem("passphrase");
+                }
+            }
+            if (Object.keys(data).length === 0) {
+                let pw = prompt("Passphrase", "Munch");
+                try {
+                    data = decryptData(encData, pw);
+                    sessionStorage.setItem("passphrase", pw);
+                } catch(e) {
+                    alert("Incorrect password! Refresh to try again");
+                    console.log(e)
+                    return
+                }
+            }
+
+            let flattenedData = [];
+            for (let recipe of data) {
+                let flatRecipe = {};
+                flatten(recipe, flatRecipe);
+                flattenedData.push(flatRecipe);
+            }
+            console.log(flattenedData);
+
+            for (let flatRecipe of flattenedData) {
+                let r = document.createElement("recipe-instructions");
+                for (let k in flatRecipe) {
+                    let s = document.createElement("span");
+                    s.slot = k;
+                    s.innerHTML = flatRecipe[k]
+                    r.appendChild(s);
+                }
+                r.dataset.filepath = flatRecipe['Nutrition.FilePath']
+
+                document.body.appendChild(r);
+            }
+
+            let recipes = document.querySelectorAll("recipe-instructions");
             let recipeNames = new Map()
             for (let r of recipes) {
                 let path = r.dataset.filepath.split("/");
@@ -221,6 +306,7 @@
                     } else {
                         li.innerHTML = `
                         <a href="#"
+                            target="_self"
                             onclick="navigateTo('${value.filepath}');"
                             data-filepath="${value.filepath}">
                             ${value.title}
@@ -302,46 +388,96 @@
     </div>
     <button class="show-search-btn">S</button>
 
-    {{#each recipes}}
-    <div class="recipe" data-filepath="{{this.filePath}}">
-        {{{this.instructions}}}
-        <h2>Nutrition</h2>
-        <table>
-            <tr>
-                <td>Calories:</td>
-                <td>{{this.nutrition.Calories}}</td>
-                <td></td>
-                <td></td>
-                <td>Sugar:</td>
-                <td>{{this.nutrition.Sugars}}g</td>
-            </tr>
-            <tr>
-                <td>Fat:</td>
-                <td>{{this.nutrition.TotalFat}}g</td>
-                <td>({{this.FatPercent}}%)</td>
-                <td></td>
-                <td>Saturated Fat:</td>
-                <td>{{this.nutrition.SaturatedFat}}g</td>
-            </tr>
-            <tr>
-                <td>Protein:</td>
-                <td>{{this.nutrition.Protein}}g</td>
-                <td>({{this.ProteinPercent}}%)</td>
-                <td></td>
-                <td>Cholesterol:</td>
-                <td>{{this.nutrition.Cholesterol}}mg</td>
-            </tr>
-            <tr>
-                <td>Carbs:</td>
-                <td>{{this.nutrition.TotalCarbs}}g</td>
-                <td>({{this.CarbsPercent}}%)</td>
-                <td></td>
-                <td>Fiber:</td>
-                <td>{{this.nutrition.DietaryFiber}}g</td>
-            </tr>
-        </table>
-    </div>
-    {{/each}}
+    <template id="recipe-template">
+        <style>
+            table {
+                margin-left: auto;
+                margin-right: auto;
+                margin-top: 10px;
+                border-collapse: collapse;
+                font-size: 10pt;
+            }
+
+            td {
+                padding: 2px;
+            }
+
+            tr:first-child td:nth-child(3) {
+                border-top: 0;
+                border-right: 0;
+            }
+
+            td:nth-child(4) {
+                width: 40px;
+                border: 0;
+            }
+
+            td:nth-child(1),
+            td:nth-child(5) {
+                text-align: right;
+            }
+
+            td:nth-child(2),
+            td:last-child,
+            td:nth-child(3) {
+                font-family: monospace;
+            }
+        </style>
+        <div class="recipe">
+            <slot name="Instructions">Default Instructions</slot>
+            <h2>Nutrition</h2>
+            <table>
+                <tr>
+                    <td>Calories:</td>
+                    <td>
+                        <slot name="Nutrition.nf_calories"></slot>
+                    </td>
+                    <td></td>
+                    <td></td>
+                    <td>Sugar:</td>
+                    <td>
+                        <slot name="Nutrition.nf_sugars"></slot>g
+                    </td>
+                </tr>
+                <tr>
+                    <td>Fat:</td>
+                    <td>
+                        <slot name="Nutrition.nf_total_fat"></slot>g
+                    </td>
+                    <td>(<slot name="Nutrition.FatPercent"></slot>%)</td>
+                    <td></td>
+                    <td>Saturated Fat:</td>
+                    <td>
+                        <slot name="Nutrition.nf_saturated_fat"></slot>g
+                    </td>
+                </tr>
+                <tr>
+                    <td>Protein:</td>
+                    <td>
+                        <slot name="Nutrition.nf_protein"></slot>g
+                    </td>
+                    <td>(<slot name="Nutrition.ProteinPercent"></slot>%)</td>
+                    <td></td>
+                    <td>Cholesterol:</td>
+                    <td>
+                        <slot name="Nutrition.nf_cholesterol"></slot>mg
+                    </td>
+                </tr>
+                <tr>
+                    <td>Carbs:</td>
+                    <td>
+                        <slot name="Nutrition.nf_total_carbohydrate"></slot>g
+                    </td>
+                    <td>(<slot name="Nutrition.CarbsPercent"></slot>%)</td>
+                    <td></td>
+                    <td>Fiber:</td>
+                    <td>
+                        <slot name="Nutrition.nf_dietary_fiber"></slot>g
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </template>
 </body>
 
 </html>
